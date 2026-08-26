@@ -1065,7 +1065,7 @@ class SerialMotorsBus(MotorsBusBase):
 
     @check_if_not_connected
     def write(
-        self, data_name: str, motor: str, value: Value, *, normalize: bool = True, num_retry: int = 0
+        self, data_name: str, motor: str, value: Value, *, normalize: bool = True, num_retry: int = 2
     ) -> None:
         """Write a value to a single motor's register.
 
@@ -1080,7 +1080,10 @@ class SerialMotorsBus(MotorsBusBase):
             value (Value): Value to write.  If *normalize* is `True` the value is first converted to raw
                 units.
             normalize (bool, optional): Enable or disable normalisation. Defaults to `True`.
-            num_retry (int, optional): Retry attempts.  Defaults to `0`.
+            num_retry (int, optional): Retry attempts.  Defaults to `2`. Feetech buses occasionally drop or
+                corrupt the status packet of an otherwise valid write, which would abort configuration and
+                calibration on the first glitch. All registers written through this method are idempotent,
+                so retrying is safe. Mirrors the retry count used for reads (`num_read_retries`).
         """
 
         id_ = self.motors[motor].id
