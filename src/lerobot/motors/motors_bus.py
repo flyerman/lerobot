@@ -998,7 +998,7 @@ class SerialMotorsBus(MotorsBusBase):
         motor: str,
         *,
         normalize: bool = True,
-        num_retry: int = 0,
+        num_retry: int = 2,
     ) -> Value:
         """Read a register from a motor.
 
@@ -1007,7 +1007,9 @@ class SerialMotorsBus(MotorsBusBase):
             motor (str): Motor name.
             normalize (bool, optional): When `True` (default) scale the value to a user-friendly range as
                 defined by the calibration.
-            num_retry (int, optional): Retry attempts.  Defaults to `0`.
+            num_retry (int, optional): Retry attempts.  Defaults to `2`. Feetech buses occasionally drop or
+                corrupt a status packet; reads have no side effect, so retrying is always safe. Matches the
+                default of :pymeth:`write` and the retry count used for `sync_read` (`num_read_retries`).
 
         Returns:
             Value: Raw or normalised value depending on *normalize*.
