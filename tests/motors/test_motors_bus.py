@@ -137,9 +137,9 @@ def test_read(data_name, id_, value, dummy_motors):
         addr,
         length,
         id_,
-        num_retry=0,
+        num_retry=2,
         raise_on_error=True,
-        err_msg=f"Failed to read '{data_name}' on {id_=} after 1 tries.",
+        err_msg=f"Failed to read '{data_name}' on {id_=} after 3 tries.",
     )
     mock__decode_sign.assert_called_once_with(data_name, {id_: value})
     if data_name in bus.normalized_data:
@@ -171,9 +171,9 @@ def test_write(data_name, id_, value, dummy_motors):
         length,
         id_,
         value,
-        num_retry=0,
+        num_retry=2,
         raise_on_error=True,
-        err_msg=f"Failed to write '{data_name}' on {id_=} with '{value}' after 1 tries.",
+        err_msg=f"Failed to write '{data_name}' on {id_=} with '{value}' after 3 tries.",
     )
     mock__encode_sign.assert_called_once_with(data_name, {id_: value})
     if data_name in bus.normalized_data:
