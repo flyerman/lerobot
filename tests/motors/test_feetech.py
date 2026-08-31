@@ -446,10 +446,11 @@ def test_set_half_turn_homings(mock_motors, dummy_motors):
     "initial_phase, expected_phase",
     [
         (0b00010000, 0b00000000),  # bit 4 set - cleared
-        (0b11111111, 0b11101111),  # all bits set - bit 4 cleared, others preserved
+        (0b00011100, 0b00001100),  # bit 4 set among other bits - cleared, others preserved
         (0b00000000, 0b00000000),  # bit 4 already 0 - unchanged
+        (0b00001100, 0b00001100),  # factory default - unchanged
     ],
-    ids=["bit4_set", "all_bits_set", "bit4_already_cleared"],
+    ids=["bit4_set", "other_bits_preserved", "bit4_already_cleared", "factory_default"],
 )
 def test_configure_motors_clears_sts3215_phase_bit4(initial_phase, expected_phase, mock_motors, dummy_motors):
     """Phase register bit 4 (angle feedback mode) must be cleared for sts3215, other bits preserved."""
@@ -479,6 +480,54 @@ def test_configure_motors_clears_sts3215_phase_bit4(initial_phase, expected_phas
     else:  # If no write should be made, ensure that Phase is not written for any motor
         write_data_names = [call.args[0] for call in mock_write.call_args_list]
         assert "Phase" not in write_data_names
+
+
+@pytest.mark.parametrize(
+    "corrupted_phase",
+    [0b11101010, 0b11111111, 0b00100000],
+    ids=["observed_corruption", "all_bits_set", "single_reserved_bit"],
+)
+def test_configure_motors_refuses_to_write_back_corrupted_sts3215_phase(
+    corrupted_phase, mock_motors, dummy_motors
+):
+    """A corrupted Phase read must never be written back: it would persist to EEPROM."""
+    # Force bit 4 on, so the value would have been written back before the guard existed.
+    corrupted_phase |= 0b00010000
+    for motor in dummy_motors.values():
+        mock_motors.build_write_stub(*STS_SMS_SERIES_CONTROL_TABLE["Return_Delay_Time"], motor.id, 0)
+        mock_motors.build_write_stub(*STS_SMS_SERIES_CONTROL_TABLE["Maximum_Acceleration"], motor.id, 254)
+        mock_motors.build_write_stub(*STS_SMS_SERIES_CONTROL_TABLE["Acceleration"], motor.id, 254)
+        mock_motors.build_read_stub(*STS_SMS_SERIES_CONTROL_TABLE["Phase"], motor.id, corrupted_phase)
+
+    bus = FeetechMotorsBus(port=mock_motors.port, motors=dummy_motors)
+    bus.connect(handshake=False)
+
+    with (
+        patch.object(bus, "write", wraps=bus.write) as mock_write,
+        pytest.raises(RuntimeError, match="implausible 'Phase' value"),
+    ):
+        bus.configure_motors()
+
+    assert "Phase" not in [call.args[0] for call in mock_write.call_args_list]
+
+
+def test_configure_motors_warns_on_corrupted_sts3215_phase(mock_motors, dummy_motors, caplog):
+    """A corrupted Phase without bit 4 needs no write, but must not pass silently."""
+    corrupted_phase = 0b11101010  # bit 4 clear: observed on servos with a corrupted Phase register
+    for motor in dummy_motors.values():
+        mock_motors.build_write_stub(*STS_SMS_SERIES_CONTROL_TABLE["Return_Delay_Time"], motor.id, 0)
+        mock_motors.build_write_stub(*STS_SMS_SERIES_CONTROL_TABLE["Maximum_Acceleration"], motor.id, 254)
+        mock_motors.build_write_stub(*STS_SMS_SERIES_CONTROL_TABLE["Acceleration"], motor.id, 254)
+        mock_motors.build_read_stub(*STS_SMS_SERIES_CONTROL_TABLE["Phase"], motor.id, corrupted_phase)
+
+    bus = FeetechMotorsBus(port=mock_motors.port, motors=dummy_motors)
+    bus.connect(handshake=False)
+
+    with caplog.at_level("WARNING"), patch.object(bus, "write", wraps=bus.write) as mock_write:
+        bus.configure_motors()
+
+    assert "Phase" not in [call.args[0] for call in mock_write.call_args_list]
+    assert "implausible 'Phase' value" in caplog.text
 
 
 def test_configure_motors_skips_phase_for_non_sts3215(mock_motors):

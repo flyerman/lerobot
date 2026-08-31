@@ -46,6 +46,15 @@ DEFAULT_TIMEOUT_MS = 1000
 
 NORMALIZED_DATA = ["Goal_Position", "Present_Position"]
 
+# 'Phase' register (0x12) of the STS3215.
+STS3215_PHASE_ANGLE_FEEDBACK_BIT = 0x10
+# Bits 5-7 are unused. They have only ever been observed set on servos whose Phase byte got
+# corrupted, which disables the internal voltage/temperature sensing and latches an input-voltage
+# error that makes every subsequent write fail. Used to reject a corrupted read before it is
+# written back to EEPROM, where it would persist across power cycles.
+STS3215_PHASE_RESERVED_MASK = 0xE0
+STS3215_PHASE_DEFAULT = 0x0C
+
 logger = logging.getLogger(__name__)
 
 
@@ -221,8 +230,21 @@ class FeetechMotorsBus(SerialMotorsBus):
             # Only known to be necessary for the STS3215.
             if self.motors[motor].model == "sts3215":
                 phase = self.read("Phase", motor, normalize=False)
-                if phase & 0x10:
-                    self.write("Phase", motor, phase & ~0x10)
+                # Never write back a Phase value that cannot be genuine: a single corrupted read
+                # would otherwise be persisted to EEPROM, permanently misconfiguring the servo.
+                if phase & STS3215_PHASE_RESERVED_MASK:
+                    msg = (
+                        f"Motor '{motor}' reports an implausible 'Phase' value 0x{phase:02X}: bits 5-7 are "
+                        f"unused on the {self.motors[motor].model} and are only seen set on a servo whose "
+                        f"'Phase' register is corrupted (expected e.g. 0x{STS3215_PHASE_DEFAULT:02X}). Such "
+                        "a servo reports a null input voltage and rejects further writes; its 'Phase' "
+                        "register needs to be restored."
+                    )
+                    if phase & STS3215_PHASE_ANGLE_FEEDBACK_BIT:
+                        raise RuntimeError(f"{msg} Refusing to write it back and persist the corruption.")
+                    logger.warning(msg)
+                elif phase & STS3215_PHASE_ANGLE_FEEDBACK_BIT:
+                    self.write("Phase", motor, phase & ~STS3215_PHASE_ANGLE_FEEDBACK_BIT)
 
     @property
     def is_calibrated(self) -> bool:
